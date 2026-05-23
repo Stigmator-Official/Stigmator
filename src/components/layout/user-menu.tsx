@@ -25,18 +25,20 @@ interface UserData {
 
 // Role display mapping
 const ROLE_DISPLAY: Record<UserRole, string> = {
-  artist: "ARTIST",
-  customer: "COLLECTOR",
-  fulfillment: "MAKER",
-  admin: "ADMIN",
+  ARTIST: "ARTIST",
+  CUSTOMER: "COLLECTOR",
+  ADMIN: "ADMIN",
+  SUPER_ADMIN: "SUPER ADMIN",
+  DEVELOPER: "DEVELOPER",
 }
 
 // Role badge colors
 const ROLE_COLORS: Record<UserRole, string> = {
-  artist: "bg-[#dc2626] border-[#dc2626]",
-  customer: "bg-[#4ade80] border-[#4ade80] text-[#0a0f0a]",
-  fulfillment: "bg-[#6b8e6b] border-[#6b8e6b]",
-  admin: "bg-[#fbbf24] border-[#fbbf24] text-[#0a0f0a]",
+  ARTIST: "bg-[#dc2626] border-[#dc2626]",
+  CUSTOMER: "bg-[#4ade80] border-[#4ade80] text-[#0a0f0a]",
+  ADMIN: "bg-[#fbbf24] border-[#fbbf24] text-[#0a0f0a]",
+  SUPER_ADMIN: "bg-[#a78bfa] border-[#a78bfa] text-[#0a0f0a]",
+  DEVELOPER: "bg-[#60a5fa] border-[#60a5fa] text-[#0a0f0a]",
 }
 
 interface UserMenuProps {

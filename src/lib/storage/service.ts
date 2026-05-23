@@ -1,8 +1,8 @@
 // STIGMATOR Storage Service
 // Handles file uploads, image optimization, and asset management
 
-import { createBrowserClient } from "@/lib/database/browser";
-import { createAdminClient } from "@/lib/database/server";
+import { createClientBrowser } from "@/lib/supabase/client";
+import { createAdminClient } from "@/lib/supabase/server";
 
 // ============================================
 // CONFIGURATION
@@ -90,7 +90,7 @@ export async function uploadDesign(
   file: File,
   options: UploadOptions
 ): Promise<UploadResult> {
-  const supabase = createBrowserClient();
+  const supabase = createClientBrowser();
   
   // Generate unique path
   const timestamp = Date.now();
@@ -152,7 +152,7 @@ function getImageTransformationUrl(
  * Delete a design file and its variants
  */
 export async function deleteDesignFile(path: string): Promise<void> {
-  const supabase = createBrowserClient();
+  const supabase = createClientBrowser();
   
   const { error } = await supabase.storage
     .from(STORAGE_BUCKETS.DESIGN_UPLOADS)
@@ -338,7 +338,7 @@ export async function getSignedUrl(
   path: string,
   expiresIn: number = 3600
 ): Promise<string> {
-  const supabase = createBrowserClient();
+  const supabase = createClientBrowser();
   
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKETS.DESIGN_UPLOADS)
@@ -355,7 +355,7 @@ export async function getSignedUrl(
  * Check if a file exists
  */
 export async function fileExists(path: string): Promise<boolean> {
-  const supabase = createBrowserClient();
+  const supabase = createClientBrowser();
   
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKETS.DESIGN_UPLOADS)
@@ -364,5 +364,5 @@ export async function fileExists(path: string): Promise<boolean> {
   if (error) return false;
 
   const fileName = path.split("/").pop();
-  return data.some(item => item.name === fileName);
+  return data.some((item: { name: string }) => item.name === fileName);
 }

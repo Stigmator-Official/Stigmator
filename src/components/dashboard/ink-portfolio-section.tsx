@@ -31,7 +31,6 @@ import {
   saveInkPortfolio,
   loadInkPortfolio
 } from "@/lib/ink-portfolio"
-import { supabaseBrowser } from "@/lib/supabase/client"
 
 export function InkPortfolioSection() {
   const [loading, setLoading] = useState(true)
@@ -52,24 +51,13 @@ export function InkPortfolioSection() {
     
     // If no saved data, initialize empty — no mock data in production
     if (!data) {
-      let userId = "user-001"
-      try {
-        const supabase = supabaseBrowser()
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user?.id) {
-          userId = session.user.id
-        }
-      } catch {
-        // Silently fall back to default
-      }
-      
       data = {
-        userId,
-        totalEarned: 0,
-        totalAttributed: 0,
         attributedDesigns: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        totalEarned: 0,
+        pendingPayout: 0,
+        lifetimeSales: 0,
+        byDesign: [],
+        recentSales: [],
       }
       saveInkPortfolio(data)
     }
