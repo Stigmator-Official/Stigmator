@@ -1,8 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@/lib/supabase/server";
-import { withAuth } from "@/lib/api/admin-middleware";
+import { withAuth, forbiddenResponse } from "@/lib/api/admin-middleware";
+import { generalRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
+
+const FULFILLMENT_ROLES = ["MANUFACTURER", "ADMIN", "SUPER_ADMIN"];
+
+async function canAccessOrder(
+  supabase: any,
+  orderId: string,
+  userId: string,
+  role: string
+): Promise<boolean> {
+  // Admins and manufacturers can access any order
+  if (FULFILLMENT_ROLES.includes(role)) return true;
+  // Customers can only access their own orders
+  const { data: order } = await supabase
+    .from("orders")
+    .select("customer_id")
+    .eq("id", orderId)
+    .single();
+  return order?.customer_id === userId;
+}
 
 // GET - Get fulfillment status for an order
 export async function GET(
@@ -14,6 +34,12 @@ export async function GET(
     const { id } = await params;
 
     try {
+      // Verify access
+      const hasAccess = await canAccessOrder(supabase, id, context.user.id, context.role);
+      if (!hasAccess) {
+        return forbiddenResponse("You do not have permission to view this order");
+      }
+
       const { data: order, error } = await supabase
         .from("orders")
         .select(`
@@ -55,6 +81,17 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   return withAuth(async (req, context) => {
+    // Rate limit
+    const { success: limitOk } = await generalRateLimit(context.user.id);
+    if (!limitOk) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    }
+
+    // Only manufacturer, admin, or super admin can update fulfillment
+    if (!FULFILLMENT_ROLES.includes(context.role)) {
+      return forbiddenResponse("Manufacturer access required");
+    }
+
     const supabase = await createRouteHandlerClient();
     const { id } = await params;
 
@@ -82,7 +119,8 @@ export async function POST(
         const { error } = await supabase
           .from("order_items")
           .update(updates)
-          .eq("id", itemId);
+          .eq("id", itemId)
+          .eq("order_id", id); // Ensure item belongs to this order
 
         if (error) throw error;
       }

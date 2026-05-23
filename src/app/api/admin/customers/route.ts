@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 
 function sanitizeSearch(input: string): string {
   // Remove characters that could interfere with PostgREST filter syntax
-  return input.replace(/[,&()"\\]/g, "");
+  // % and _ are SQL wildcards inside ilike
+  return input.replace(/[,%_&()"\\]/g, "");
 }
 
 export const GET = withUserManagement(async (request: NextRequest) => {

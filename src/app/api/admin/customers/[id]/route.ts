@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClientServer } from "@/lib/supabase/server";
 import { customers, type CustomerRole, type CustomerStatus } from "@/lib/data/customers";
 import { canAccessAdmin } from "@/lib/permissions";
+import { adminRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,12 @@ async function requireAdmin(request: NextRequest) {
 
   if (error || !user) {
     return { error: NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 }) };
+  }
+
+  // Rate limit admin endpoints
+  const { success: limitOk } = await adminRateLimit(user.id);
+  if (!limitOk) {
+    return { error: NextResponse.json({ success: false, error: "Rate limit exceeded" }, { status: 429 }) };
   }
 
   const { data: userData } = await supabase

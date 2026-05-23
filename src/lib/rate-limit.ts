@@ -28,7 +28,7 @@ class MemoryRateLimit {
     }
   }
 
-  async limit(identifier: string) {
+  async limit(identifier: string, maxRequests: number) {
     this.cleanup()
     const now = Date.now()
     const windowStart = Math.floor(now / 60000) * 60000 // 1 minute window
@@ -37,15 +37,15 @@ class MemoryRateLimit {
 
     if (!current) {
       this.requests.set(key, { count: 1, resetAt: windowStart + 60000 })
-      return { success: true, limit: 60, remaining: 59, reset: windowStart + 60000 }
+      return { success: true, limit: maxRequests, remaining: maxRequests - 1, reset: windowStart + 60000 }
     }
 
     current.count++
-    const success = current.count <= 60
+    const success = current.count <= maxRequests
     return {
       success,
-      limit: 60,
-      remaining: Math.max(0, 60 - current.count),
+      limit: maxRequests,
+      remaining: Math.max(0, maxRequests - current.count),
       reset: current.resetAt,
     }
   }
@@ -68,8 +68,8 @@ function createLimiter(requests: number, window: string, prefix: string) {
     if (limiter) {
       return limiter.limit(identifier)
     }
-    // Dev fallback: very permissive memory limit
-    return memoryLimit.limit(`${prefix}:${identifier}`)
+    // Dev fallback: respect configured limit
+    return memoryLimit.limit(`${prefix}:${identifier}`, requests)
   }
 }
 

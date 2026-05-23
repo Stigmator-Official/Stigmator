@@ -96,9 +96,9 @@ export async function POST(request: NextRequest) {
             stripeTransferId = transfer.id;
             logger.info(`Stripe transfer created: ${transfer.id} for payout ${payoutId}`);
           } catch (stripeErr: any) {
-            logger.error("Stripe transfer failed:", stripeErr.message);
+            logger.error("Stripe transfer failed");
             return NextResponse.json(
-              { error: "Stripe transfer failed", details: stripeErr.message },
+              { error: "Payment processing failed" },
               { status: 502 }
             );
           }

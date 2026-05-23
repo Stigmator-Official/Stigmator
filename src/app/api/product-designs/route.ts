@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createRouteHandlerClient } from "@/lib/supabase/server";
+import { generalRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -36,16 +37,22 @@ async function uploadMockupImage(supabase: any, artistId: string, base64: string
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createAdminClient();
+    const supabase = await createRouteHandlerClient();
 
-    // Authenticate
+    // Authenticate via cookies (respects RLS)
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser(request.headers.get("authorization")?.replace("Bearer ", "") || "");
+    } = await supabase.auth.getUser();
 
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Rate limit
+    const { success: limitOk } = await generalRateLimit(user.id);
+    if (!limitOk) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }
 
     const body = await request.json();
