@@ -102,6 +102,10 @@ export async function PATCH(
       );
     }
 
+    // Capture old values before mutation for activity log
+    const oldRole = customers[customerIndex].role;
+    const oldStatus = customers[customerIndex].status;
+
     // In a real app, update the database here
     // For mock data, we'll update the in-memory array
     const updatedCustomer = {
@@ -119,7 +123,7 @@ export async function PATCH(
     customers[customerIndex] = updatedCustomer;
 
     // Add activity log entry
-    if (role && role !== customers[customerIndex].role) {
+    if (role && role !== oldRole) {
       updatedCustomer.activityLog?.unshift({
         id: `act_${Date.now()}`,
         type: "role_change",
@@ -128,7 +132,7 @@ export async function PATCH(
       });
     }
 
-    if (status && status !== customers[customerIndex].status) {
+    if (status && status !== oldStatus) {
       updatedCustomer.activityLog?.unshift({
         id: `act_${Date.now()}_status`,
         type: "status_change",
@@ -176,6 +180,8 @@ export async function DELETE(
         { status: 403 }
       );
     }
+
+    customers.splice(customerIndex, 1);
 
     return NextResponse.json({
       success: true,
