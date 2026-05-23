@@ -1,0 +1,1257 @@
+// ============================================================================
+// STIGMATOR ENTERPRISE SCHEMA ADDITIONS
+// Complete backend infrastructure for enterprise operations
+// Append these additions to your existing schema.prisma
+// ============================================================================
+
+// ============================================
+// EXTENDED ENUMS
+// ============================================
+
+// Extended UserRole for enterprise permissions
+enum ExtendedUserRole {
+  CUSTOMER
+  ARTIST
+  ADMIN
+  SUPER_ADMIN
+  DEVELOPER
+  FULFILLMENT
+  STUDIO_MANAGER
+}
+
+// Order status for complete lifecycle
+enum OrderLifecycleStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+  RETURN_REQUESTED
+  RETURNED
+}
+
+// Payment status tracking
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  DISPUTED
+  CANCELLED
+}
+
+// Payment method types
+enum PaymentMethod {
+  CREDIT_CARD
+  DEBIT_CARD
+  PAYPAL
+  APPLE_PAY
+  GOOGLE_PAY
+  KLARNA
+  AFFIRM
+  BANK_TRANSFER
+  CRYPTO
+  GIFT_CARD
+}
+
+// Shipping status
+enum ShippingStatus {
+  PENDING
+  LABEL_CREATED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  EXCEPTION
+  RETURN_TO_SENDER
+}
+
+// Discount types for promo codes
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
+  BUY_X_GET_Y
+  BUNDLE_DISCOUNT
+}
+
+// Product visibility levels
+enum ProductVisibility {
+  DRAFT
+  HIDDEN
+  VISIBLE
+  FEATURED
+  EXCLUSIVE
+}
+
+// Inventory status
+enum InventoryStatus {
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
+  BACKORDER
+  DISCONTINUED
+  PREORDER
+}
+
+// Webhook event types
+enum WebhookEvent {
+  ORDER_CREATED
+  ORDER_UPDATED
+  ORDER_CANCELLED
+  ORDER_SHIPPED
+  ORDER_DELIVERED
+  PAYMENT_RECEIVED
+  PAYMENT_FAILED
+  PRODUCT_CREATED
+  PRODUCT_UPDATED
+  PRODUCT_DELETED
+  USER_REGISTERED
+  USER_UPDATED
+  REFUND_PROCESSED
+  INVENTORY_LOW
+  REVIEW_SUBMITTED
+  PARTNERSHIP_REDEEMED
+}
+
+// Admin action types for audit
+enum AdminActionType {
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+  USER_BANNED
+  USER_UNBANNED
+  PRODUCT_APPROVED
+  PRODUCT_REJECTED
+  PRODUCT_FEATURED
+  ORDER_REFUNDED
+  ORDER_CANCELLED
+  PAYOUT_PROCESSED
+  PAYOUT_HELD
+  PROMO_CODE_CREATED
+  PROMO_CODE_DELETED
+  SETTINGS_UPDATED
+  WEBHOOK_CREATED
+  WEBHOOK_DELETED
+  API_KEY_CREATED
+  API_KEY_REVOKED
+  DATA_EXPORTED
+  MASS_EMAIL_SENT
+}
+
+// API key permissions
+enum ApiPermission {
+  READ_PRODUCTS
+  WRITE_PRODUCTS
+  READ_ORDERS
+  WRITE_ORDERS
+  READ_USERS
+  WRITE_USERS
+  READ_ANALYTICS
+  READ_INVENTORY
+  WRITE_INVENTORY
+  READ_WEBHOOKS
+  WRITE_WEBHOOKS
+  ADMIN_ACCESS
+}
+
+// ============================================
+// PAYMENT SYSTEM
+// ============================================
+
+model Payment {
+  id                String          @id @default(uuid())
+  
+  // Order reference
+  orderId           String          @unique
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  // Stripe integration
+  stripePaymentIntentId String?     @unique @map("stripe_payment_intent_id")
+  stripeChargeId    String?         @unique @map("stripe_charge_id")
+  stripeCustomerId  String?         @map("stripe_customer_id")
+  stripeRefundId    String?         @map("stripe_refund_id")
+  
+  // Payment details
+  amount            Int             // in cents
+  currency          String          @default("USD")
+  status            PaymentStatus   @default(PENDING)
+  method            PaymentMethod?
+  
+  // Capture/refund tracking
+  amountAuthorized  Int             @default(0) @map("amount_authorized")
+  amountCaptured    Int             @default(0) @map("amount_captured")
+  amountRefunded    Int             @default(0) @map("amount_refunded")
+  
+  // Card details (tokenized, safe for storage)
+  cardLast4         String?         @map("card_last4")
+  cardBrand         String?         @map("card_brand")
+  cardExpiryMonth   Int?            @map("card_expiry_month")
+  cardExpiryYear    Int?            @map("card_expiry_year")
+  
+  // Billing address
+  billingAddress    Json?           @map("billing_address")
+  
+  // Failure handling
+  failureCode       String?         @map("failure_code")
+  failureMessage    String?         @map("failure_message")
+  
+  // Receipt
+  receiptUrl        String?         @map("receipt_url")
+  receiptEmail      String?         @map("receipt_email")
+  
+  // Timestamps
+  authorizedAt      DateTime?       @map("authorized_at")
+  capturedAt        DateTime?       @map("captured_at")
+  refundedAt        DateTime?       @map("refunded_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  // Relations
+  refunds           Refund[]
+  
+  @@index([status])
+  @@index([stripePaymentIntentId])
+  @@index([stripeChargeId])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+model Refund {
+  id                String          @id @default(uuid())
+  
+  // Payment reference
+  paymentId         String          @map("payment_id")
+  payment           Payment         @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  
+  // Stripe reference
+  stripeRefundId    String          @unique @map("stripe_refund_id")
+  
+  // Refund details
+  amount            Int             // in cents
+  reason            String?         // requested_by_customer, duplicate, fraudulent, etc.
+  status            String          // pending, succeeded, failed, cancelled
+  
+  // Admin info
+  processedById     String?         @map("processed_by_id")
+  notes             String?         @db.Text
+  
+  // Order reference for audit
+  orderId           String          @map("order_id")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@index([paymentId])
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("refunds")
+}
+
+// ============================================
+// SHIPPING SYSTEM
+// ============================================
+
+model Shipping {
+  id                String          @id @default(uuid())
+  
+  // Order reference
+  orderId           String          @unique
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  // Carrier info
+  carrier           String          // USPS, FedEx, UPS, DHL, etc.
+  service           String          // ground, priority, express, etc.
+  
+  // Tracking
+  trackingNumber    String?         @map("tracking_number")
+  trackingUrl       String?         @map("tracking_url")
+  
+  // Shipping address
+  recipientName     String          @map("recipient_name")
+  addressLine1      String          @map("address_line1")
+  addressLine2      String?         @map("address_line2")
+  city              String
+  state             String
+  country           String          @default("US")
+  postalCode        String          @map("postal_code")
+  phone             String?
+  
+  // Cost
+  cost              Int             // in cents
+  insuranceAmount   Int?            @map("insurance_amount")
+  
+  // Dimensions and weight
+  packageWeight     Float?          @map("package_weight") // in lbs
+  packageDimensions Json?           @map("package_dimensions") // {length, width, height}
+  
+  // Status tracking
+  status            ShippingStatus  @default(PENDING)
+  
+  // Timestamps
+  labelCreatedAt    DateTime?       @map("label_created_at")
+  shippedAt         DateTime?       @map("shipped_at")
+  estimatedDelivery DateTime?       @map("estimated_delivery")
+  deliveredAt       DateTime?       @map("delivered_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  // Tracking events
+  trackingEvents    ShippingEvent[]
+  
+  @@index([status])
+  @@index([trackingNumber])
+  @@index([carrier])
+  @@index([createdAt])
+  @@map("shipping")
+}
+
+model ShippingEvent {
+  id                String          @id @default(uuid())
+  
+  shippingId        String          @map("shipping_id")
+  shipping          Shipping        @relation(fields: [shippingId], references: [id], onDelete: Cascade)
+  
+  // Event details
+  status            String          // raw status from carrier
+  description       String
+  location          String?         // City, State or facility
+  
+  // Timestamp from carrier
+  occurredAt        DateTime        @map("occurred_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@index([shippingId])
+  @@index([occurredAt])
+  @@map("shipping_events")
+}
+
+// ============================================
+// ORDER ENHANCEMENTS
+// ============================================
+
+// Extend existing Order with additional fields
+// Add these fields to your existing Order model:
+/*
+model Order {
+  // ... existing fields ...
+  
+  // Promo code reference
+  promoCodeId       String?         @map("promo_code_id")
+  promoCode         PromoCode?      @relation(fields: [promoCodeId], references: [id])
+  
+  // Enhanced relations
+  payment           Payment?
+  shipping          Shipping?
+  notes             OrderNote[]
+  activities        OrderActivity[]
+  
+  @@index([promoCodeId])
+}
+*/
+
+model OrderNote {
+  id                String          @id @default(uuid())
+  
+  orderId           String          @map("order_id")
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  // Note content
+  content           String          @db.Text
+  isInternal        Boolean         @default(true) @map("is_internal") // true = internal only, false = customer visible
+  
+  // Author
+  createdById       String?         @map("created_by_id")
+  createdByType     String          @default("SYSTEM") @map("created_by_type") // SYSTEM, USER, ADMIN, CUSTOMER
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("order_notes")
+}
+
+model OrderActivity {
+  id                String          @id @default(uuid())
+  
+  orderId           String          @map("order_id")
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  // Activity details
+  status            OrderLifecycleStatus
+  description       String
+  
+  // Actor
+  actorId           String?         @map("actor_id")
+  actorType         String          @default("SYSTEM") @map("actor_type") // SYSTEM, USER, CUSTOMER
+  
+  // Metadata
+  metadata          Json?
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@index([orderId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("order_activities")
+}
+
+// ============================================
+// ANALYTICS SYSTEM (Time-series data)
+// ============================================
+
+model DailyStats {
+  id                String          @id @default(uuid())
+  
+  // Date (unique per day)
+  date              DateTime        @unique
+  
+  // Revenue metrics
+  revenue           Int             @default(0) // in cents
+  revenueFromNewCustomers Int       @default(0) @map("revenue_from_new_customers")
+  revenueFromReturningCustomers Int @default(0) @map("revenue_from_returning_customers")
+  
+  // Order metrics
+  totalOrders       Int             @default(0) @map("total_orders")
+  newCustomerOrders Int             @default(0) @map("new_customer_orders")
+  returningCustomerOrders Int       @default(0) @map("returning_customer_orders")
+  cancelledOrders   Int             @default(0) @map("cancelled_orders")
+  refundedOrders    Int             @default(0) @map("refunded_orders")
+  
+  // Traffic metrics
+  visitors          Int             @default(0)
+  uniqueVisitors    Int             @default(0) @map("unique_visitors")
+  pageViews         Int             @default(0) @map("page_views")
+  
+  // Conversion metrics
+  addToCarts        Int             @default(0) @map("add_to_carts")
+  checkoutsStarted  Int             @default(0) @map("checkouts_started")
+  conversionRate    Float           @default(0) @map("conversion_rate") // percentage
+  
+  // Average metrics
+  averageOrderValue Int             @default(0) @map("average_order_value")
+  
+  // Product metrics
+  productsViewed    Int             @default(0) @map("products_viewed")
+  productsSold      Int             @default(0) @map("products_sold")
+  
+  // User metrics
+  newUsers          Int             @default(0) @map("new_users")
+  activeUsers       Int             @default(0) @map("active_users")
+  
+  // Source breakdown (stored as JSON for flexibility)
+  trafficSources    Json?           @map("traffic_sources") // { organic: 100, paid: 50, social: 30, ... }
+  deviceBreakdown   Json?           @map("device_breakdown") // { mobile: 60%, desktop: 40% }
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  @@index([date])
+  @@index([createdAt])
+  @@map("daily_stats")
+}
+
+model ProductAnalytics {
+  id                String          @id @default(uuid())
+  
+  // Product reference
+  productId         String          @map("product_id")
+  
+  // Date for time-series
+  date              DateTime
+  
+  // Engagement metrics
+  views             Int             @default(0)
+  uniqueViews       Int             @default(0) @map("unique_views")
+  addToCarts        Int             @default(0) @map("add_to_carts")
+  
+  // Sales metrics
+  sales             Int             @default(0)
+  revenue           Int             @default(0) // in cents
+  
+  // Conversion
+  conversionRate    Float           @default(0) @map("conversion_rate")
+  
+  // Inventory
+  stockLevel        Int             @map("stock_level")
+  
+  // Source data
+  viewsBySource     Json?           @map("views_by_source") // { search: 50, direct: 30, ... }
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  @@unique([productId, date])
+  @@index([productId])
+  @@index([date])
+  @@index([createdAt])
+  @@map("product_analytics")
+}
+
+model UserAnalytics {
+  id                String          @id @default(uuid())
+  
+  // User reference
+  userId            String          @map("user_id")
+  
+  // Date
+  date              DateTime
+  
+  // Session metrics
+  sessions          Int             @default(0)
+  sessionDuration   Int             @default(0) @map("session_duration") // total seconds
+  
+  // Activity metrics
+  pageViews         Int             @default(0) @map("page_views")
+  productsViewed    Int             @default(0) @map("products_viewed")
+  designsCreated    Int             @default(0) @map("designs_created")
+  
+  // Purchase metrics
+  ordersPlaced      Int             @default(0) @map("orders_placed")
+  amountSpent       Int             @default(0) @map("amount_spent") // in cents
+  
+  // Engagement score (calculated)
+  engagementScore   Int             @default(0) @map("engagement_score")
+  
+  // Device/location
+  lastDevice        String?         @map("last_device")
+  lastLocation      String?         @map("last_location")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+  @@index([engagementScore])
+  @@map("user_analytics")
+}
+
+model AnalyticsEvent {
+  id                String          @id @default(uuid())
+  
+  // Event categorization
+  eventType         String          @map("event_type") // page_view, product_view, add_to_cart, etc.
+  eventName         String          @map("event_name")
+  
+  // Actor
+  userId            String?         @map("user_id")
+  sessionId         String?         @map("session_id")
+  
+  // Target
+  entityType        String?         @map("entity_type") // Product, Order, etc.
+  entityId          String?         @map("entity_id")
+  
+  // Event data
+  properties        Json?           // flexible event properties
+  
+  // Context
+  url               String?
+  referrer          String?
+  userAgent         String?         @map("user_agent")
+  ipAddress         String?         @map("ip_address")
+  deviceType        String?         @map("device_type")
+  country           String?
+  
+  // Timestamp
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@index([eventType])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([sessionId])
+  @@map("analytics_events")
+}
+
+// ============================================
+// PROMO CODE SYSTEM
+// ============================================
+
+model PromoCode {
+  id                String          @id @default(uuid())
+  
+  // Code details
+  code              String          @unique
+  name              String          // Display name
+  description       String?         @db.Text
+  
+  // Discount configuration
+  type              DiscountType
+  value             Int             // percentage (e.g., 20 for 20%) or fixed amount in cents
+  minimumOrderAmount Int?           @map("minimum_order_amount") // in cents
+  maximumDiscount   Int?            @map("maximum_discount") // cap for percentage discounts
+  
+  // Usage limits
+  usageLimit        Int?            @map("usage_limit") // total max uses
+  usageLimitPerUser Int?            @map("usage_limit_per_user") // max uses per customer
+  usageCount        Int             @default(0) @map("usage_count")
+  
+  // Validity period
+  startsAt          DateTime?       @map("starts_at")
+  expiresAt         DateTime?       @map("expires_at")
+  
+  // Eligibility
+  applicableProducts String[]       @map("applicable_products") // empty = all products
+  excludedProducts  String[]        @map("excluded_products")
+  applicableCategories String[]      @map("applicable_categories")
+  newCustomersOnly  Boolean         @default(false) @map("new_customers_only")
+  
+  // Status
+  isActive          Boolean         @default(true) @map("is_active")
+  
+  // Metadata
+  metadata          Json?           // flexible configuration
+  
+  // Creator
+  createdById       String?         @map("created_by_id")
+  
+  // Timestamps
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  // Relations
+  usages            CodeUsage[]
+  orders            Order[]
+  
+  @@index([code])
+  @@index([isActive])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@map("promo_codes")
+}
+
+model CodeUsage {
+  id                String          @id @default(uuid())
+  
+  // Promo code reference
+  promoCodeId       String          @map("promo_code_id")
+  promoCode         PromoCode       @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  
+  // User who used it
+  userId            String          @map("user_id")
+  
+  // Order reference
+  orderId           String          @map("order_id")
+  
+  // Usage details
+  discountAmount    Int             @map("discount_amount") // in cents
+  
+  // IP for fraud detection
+  ipAddress         String?         @map("ip_address")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@unique([promoCodeId, userId, orderId])
+  @@index([promoCodeId])
+  @@index([userId])
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("code_usages")
+}
+
+// ============================================
+// ADMIN & PERMISSIONS SYSTEM
+// ============================================
+
+// Update existing User model with extended roles
+// Modify your User model's role field:
+/*
+model User {
+  // ... existing fields ...
+  role              ExtendedUserRole  @default(CUSTOMER)
+  
+  // Admin relations
+  adminActions      AdminAction[]
+  apiKeys           ApiKey[]
+  
+  // ... rest of existing fields ...
+}
+*/
+
+model Permission {
+  id                String          @id @default(uuid())
+  
+  // Permission details
+  name              String          @unique
+  description       String?
+  resource          String          // e.g., "orders", "products", "users"
+  action            String          // e.g., "read", "write", "delete", "admin"
+  
+  // Granular control
+  conditions        Json?           // JSON conditions for when this permission applies
+  
+  // Relations
+  rolePermissions   RolePermission[]
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  @@unique([resource, action])
+  @@index([resource])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id                String          @id @default(uuid())
+  
+  // Role assignment
+  role              ExtendedUserRole
+  
+  // Permission reference
+  permissionId      String          @map("permission_id")
+  permission        Permission      @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  
+  // Scope limitations
+  scope             Json?           // e.g., { "studios": ["studio-id-1"] } for studio-scoped admins
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@unique([role, permissionId])
+  @@index([role])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model AdminAction {
+  id                String          @id @default(uuid())
+  
+  // Actor
+  adminId           String          @map("admin_id")
+  admin             User            @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  // Action details
+  actionType        AdminActionType @map("action_type")
+  action            String          // Human-readable action description
+  
+  // Target
+  targetType        String          @map("target_type") // e.g., "User", "Product", "Order"
+  targetId          String          @map("target_id")
+  targetData        Json?           @map("target_data") // Snapshot of target before/after
+  
+  // Context
+  ipAddress         String?         @map("ip_address")
+  userAgent         String?         @map("user_agent")
+  
+  // Reason (for sensitive actions)
+  reason            String?         @db.Text
+  
+  // Rollback info
+  isReverted        Boolean         @default(false) @map("is_reverted")
+  revertedById      String?         @map("reverted_by_id")
+  revertedAt        DateTime?       @map("reverted_at")
+  revertReason      String?         @map("revert_reason")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@index([adminId])
+  @@index([actionType])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("admin_actions")
+}
+
+// ============================================
+// PRODUCT CATALOG ENHANCEMENTS
+// ============================================
+
+// ProductVariant for size/color combinations
+model ProductVariant {
+  id                String          @id @default(uuid())
+  
+  // Product reference
+  productId         String          @map("product_id")
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // Variant attributes
+  sku               String          @unique // Stock Keeping Unit
+  barcode           String?         @unique
+  
+  // Variant options
+  size              String?         // S, M, L, XL, etc.
+  color             String?
+  colorHex          String?         @map("color_hex") // For color swatches
+  material          String?
+  
+  // Pricing override (optional)
+  priceOverride     Int?            @map("price_override") // in cents, null = use product base price
+  
+  // Dimensions
+  weight            Float?          // in lbs
+  dimensions        Json?           // { length, width, height }
+  
+  // Status
+  isActive          Boolean         @default(true) @map("is_active")
+  
+  // Media
+  images            String[]        // Variant-specific images
+  
+  // Metadata
+  metadata          Json?
+  
+  // Timestamps
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  // Relations
+  inventory         Inventory?
+  orderItems        OrderItem[]
+  
+  @@index([productId])
+  @@index([sku])
+  @@index([isActive])
+  @@map("product_variants")
+}
+
+model Inventory {
+  id                String          @id @default(uuid())
+  
+  // Can link to Product (for simple products) or ProductVariant
+  productId         String?         @unique @map("product_id")
+  product           Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  variantId         String?         @unique @map("variant_id")
+  variant           ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  
+  // Stock levels
+  quantityInStock   Int             @default(0) @map("quantity_in_stock")
+  quantityReserved  Int             @default(0) @map("quantity_reserved")
+  quantityAvailable Int             @default(0) @map("quantity_available") // calculated: in_stock - reserved
+  
+  // Thresholds
+  lowStockThreshold Int             @default(10) @map("low_stock_threshold")
+  reorderPoint      Int?            @map("reorder_point")
+  reorderQuantity   Int?            @map("reorder_quantity")
+  
+  // Status
+  status            InventoryStatus @default(IN_STOCK)
+  
+  // Tracking
+  lastRestockedAt   DateTime?       @map("last_restocked_at")
+  nextRestockDate   DateTime?       @map("next_restock_date")
+  
+  // Warehouse location
+  warehouseLocation String?         @map("warehouse_location")
+  binLocation       String?         @map("bin_location")
+  
+  // History
+  history           InventoryHistory[]
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  @@index([status])
+  @@index([productId])
+  @@index([variantId])
+  @@map("inventory")
+}
+
+model InventoryHistory {
+  id                String          @id @default(uuid())
+  
+  inventoryId       String          @map("inventory_id")
+  inventory         Inventory       @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  
+  // Change details
+  quantityChange    Int             @map("quantity_change") // positive or negative
+  quantityAfter     Int             @map("quantity_after")
+  
+  // Reason
+  reason            String          // SALE, RESTOCK, ADJUSTMENT, RETURN, DAMAGED, etc.
+  referenceId       String?         @map("reference_id") // Order ID, PO ID, etc.
+  referenceType     String?         @map("reference_type")
+  
+  // Actor
+  createdById       String?         @map("created_by_id")
+  notes             String?         @db.Text
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@index([inventoryId])
+  @@index([reason])
+  @@index([createdAt])
+  @@map("inventory_history")
+}
+
+// ProductCollection for grouping products
+model ProductCollection {
+  id                String          @id @default(uuid())
+  
+  // Collection info
+  name              String
+  slug              String          @unique
+  description       String?         @db.Text
+  
+  // Media
+  imageUrl          String?         @map("image_url")
+  bannerUrl         String?         @map("banner_url")
+  
+  // Visibility
+  isActive          Boolean         @default(true) @map("is_active")
+  visibility        ProductVisibility @default(VISIBLE)
+  
+  // SEO
+  metaTitle         String?         @map("meta_title")
+  metaDescription   String?         @map("meta_description")
+  
+  // Sorting
+  sortOrder         Int             @default(0) @map("sort_order")
+  
+  // Timestamps
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  // Relations
+  products          CollectionProduct[]
+  
+  @@index([slug])
+  @@index([isActive])
+  @@index([sortOrder])
+  @@map("product_collections")
+}
+
+model CollectionProduct {
+  id                String          @id @default(uuid())
+  
+  collectionId      String          @map("collection_id")
+  collection        ProductCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  
+  productId         String          @map("product_id")
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  sortOrder         Int             @default(0) @map("sort_order")
+  
+  addedAt           DateTime        @default(now()) @map("added_at")
+  
+  @@unique([collectionId, productId])
+  @@index([collectionId])
+  @@index([productId])
+  @@map("collection_products")
+}
+
+// ============================================
+// WEBHOOKS & API
+// ============================================
+
+model Webhook {
+  id                String          @id @default(uuid())
+  
+  // Basic info
+  name              String
+  description       String?
+  
+  // Endpoint
+  url               String
+  secret            String          // For signature verification
+  
+  // Events to subscribe to
+  events            WebhookEvent[]
+  
+  // Status
+  isActive          Boolean         @default(true) @map("is_active")
+  
+  // Delivery settings
+  retryCount        Int             @default(3) @map("retry_count")
+  timeoutMs         Int             @default(30000) @map("timeout_ms")
+  
+  // Headers (custom headers to send)
+  headers           Json?           // { "X-Custom-Header": "value" }
+  
+  // Metadata
+  metadata          Json?
+  
+  // Creator
+  createdById       String?         @map("created_by_id")
+  
+  // Timestamps
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  // Relations
+  deliveries        WebhookDelivery[]
+  
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id                String          @id @default(uuid())
+  
+  webhookId         String          @map("webhook_id")
+  webhook           Webhook         @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  
+  // Delivery details
+  eventType         WebhookEvent    @map("event_type")
+  payload           Json            // The data sent
+  
+  // Request/Response
+  requestHeaders    Json?           @map("request_headers")
+  requestBody       String?         @map("request_body") @db.Text
+  responseStatus    Int?            @map("response_status")
+  responseHeaders   Json?           @map("response_headers")
+  responseBody      String?         @map("response_body") @db.Text
+  
+  // Timing
+  durationMs        Int?            @map("duration_ms")
+  
+  // Status
+  status            String          // SUCCESS, FAILED, PENDING, RETRYING
+  attemptNumber     Int             @default(1) @map("attempt_number")
+  maxAttempts       Int             @default(3) @map("max_attempts")
+  
+  // Error info
+  errorMessage      String?         @map("error_message")
+  
+  // Next retry
+  nextRetryAt       DateTime?       @map("next_retry_at")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  completedAt       DateTime?       @map("completed_at")
+  
+  @@index([webhookId])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+  @@map("webhook_deliveries")
+}
+
+model ApiKey {
+  id                String          @id @default(uuid())
+  
+  // Key info
+  name              String
+  keyHash           String          @unique @map("key_hash") // Hashed key for storage
+  keyPrefix         String          @map("key_prefix") // First few chars for display
+  
+  // Owner
+  createdById       String          @map("created_by_id")
+  createdBy         User            @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  
+  // Permissions
+  permissions       ApiPermission[]
+  
+  // Scoping (optional - restrict to specific resources)
+  allowedIps        String[]        @map("allowed_ips") // IP whitelist
+  allowedRoutes     String[]        @map("allowed_routes") // Route patterns
+  
+  // Rate limiting
+  rateLimitTier     String          @default("default") @map("rate_limit_tier")
+  
+  // Usage tracking
+  lastUsedAt        DateTime?       @map("last_used_at")
+  usageCount        Int             @default(0) @map("usage_count")
+  
+  // Status
+  isActive          Boolean         @default(true) @map("is_active")
+  revokedAt         DateTime?       @map("revoked_at")
+  revokedReason     String?         @map("revoked_reason")
+  
+  // Expiration
+  expiresAt         DateTime?       @map("expires_at")
+  
+  // Metadata
+  metadata          Json?
+  
+  // Timestamps
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  // Relations
+  usageLogs         ApiKeyUsage[]
+  
+  @@index([createdById])
+  @@index([isActive])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@map("api_keys")
+}
+
+model ApiKeyUsage {
+  id                String          @id @default(uuid())
+  
+  apiKeyId          String          @map("api_key_id")
+  apiKey            ApiKey          @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  
+  // Request details
+  method            String          // GET, POST, etc.
+  path              String
+  statusCode        Int             @map("status_code")
+  
+  // Timing
+  durationMs        Int             @map("duration_ms")
+  
+  // Context
+  ipAddress         String?         @map("ip_address")
+  userAgent         String?         @map("user_agent")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@index([apiKeyId])
+  @@index([createdAt])
+  @@map("api_key_usage")
+}
+
+// ============================================
+// SYSTEM & CONFIGURATION
+// ============================================
+
+model SystemSetting {
+  id                String          @id @default(uuid())
+  
+  // Setting categorization
+  category          String          // e.g., "payment", "shipping", "notifications"
+  key               String
+  
+  // Value (flexible typing via separate columns)
+  valueString       String?         @map("value_string")
+  valueNumber       Float?          @map("value_number")
+  valueBoolean      Boolean?        @map("value_boolean")
+  valueJson         Json?           @map("value_json")
+  valueType         String          @map("value_type") // string, number, boolean, json
+  
+  // Metadata
+  description       String?
+  isEditable        Boolean         @default(true) @map("is_editable")
+  isSecret          Boolean         @default(false) @map("is_secret") // Mask in UI/API
+  
+  // Audit
+  updatedById       String?         @map("updated_by_id")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@unique([category, key])
+  @@index([category])
+  @@map("system_settings")
+}
+
+model EmailTemplate {
+  id                String          @id @default(uuid())
+  
+  // Template identification
+  name              String          @unique
+  subject           String
+  
+  // Content
+  bodyHtml          String          @db.Text @map("body_html")
+  bodyText          String?         @db.Text @map("body_text") // Plain text fallback
+  
+  // Variables documentation
+  variables         String[]        // List of available template variables
+  
+  // Status
+  isActive          Boolean         @default(true) @map("is_active")
+  
+  // Usage tracking
+  usageCount        Int             @default(0) @map("usage_count")
+  lastUsedAt        DateTime?       @map("last_used_at")
+  
+  // Metadata
+  description       String?
+  category          String          // e.g., "order", "user", "marketing"
+  
+  // Audit
+  updatedById       String?         @map("updated_by_id")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  @@index([category])
+  @@index([isActive])
+  @@map("email_templates")
+}
+
+// ============================================
+// AUDIT & COMPLIANCE
+// ============================================
+
+model AuditLog {
+  id                String          @id @default(uuid())
+  
+  // Actor
+  userId            String?         @map("user_id")
+  userType          String          @default("SYSTEM") @map("user_type") // SYSTEM, USER, API_KEY
+  apiKeyId          String?         @map("api_key_id")
+  
+  // Action
+  action            String          // e.g., "CREATE", "UPDATE", "DELETE", "LOGIN", "EXPORT"
+  resource          String          // e.g., "Order", "User", "Product"
+  resourceId        String?         @map("resource_id")
+  
+  // Change details
+  changes           Json?           // { field: { old: "x", new: "y" } }
+  metadata          Json?           // Additional context
+  
+  // Request context
+  ipAddress         String?         @map("ip_address")
+  userAgent         String?         @map("user_agent")
+  requestId         String?         @map("request_id")
+  sessionId         String?         @map("session_id")
+  
+  // Result
+  success           Boolean         @default(true)
+  errorMessage      String?         @map("error_message")
+  
+  // Compliance
+  dataSensitivity   String?         @map("data_sensitivity") // low, medium, high, critical
+  retentionUntil    DateTime?       @map("retention_until")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  
+  @@index([userId])
+  @@index([action])
+  @@index([resource, resourceId])
+  @@index([createdAt])
+  @@index([ipAddress])
+  @@map("audit_logs")
+}
+
+model DataExport {
+  id                String          @id @default(uuid())
+  
+  // Export details
+  name              String
+  description       String?
+  
+  // Requester
+  requestedById     String          @map("requested_by_id")
+  
+  // Data specification
+  entityTypes       String[]        @map("entity_types") // ["User", "Order", etc.]
+  filters           Json?           // Query filters
+  dateRangeStart    DateTime?       @map("date_range_start")
+  dateRangeEnd      DateTime?       @map("date_range_end")
+  
+  // Status
+  status            String          // PENDING, PROCESSING, COMPLETED, FAILED, EXPIRED
+  progress          Int             @default(0) // percentage
+  
+  // File info
+  fileUrl           String?         @map("file_url")
+  fileSize          Int?            @map("file_size") // in bytes
+  fileFormat        String?         @map("file_format") // csv, json, xlsx
+  recordCount       Int?            @map("record_count")
+  
+  // Expiration
+  expiresAt         DateTime?       @map("expires_at")
+  
+  // Audit
+  completedAt       DateTime?       @map("completed_at")
+  errorMessage      String?         @map("error_message")
+  
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  
+  @@index([requestedById])
+  @@index([status])
+  @@index([createdAt])
+  @@map("data_exports")
+}
+
+// ============================================================================
+// END OF ENTERPRISE SCHEMA ADDITIONS
+// ============================================================================
