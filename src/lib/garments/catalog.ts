@@ -55,6 +55,9 @@ export interface GarmentType {
     image_url?: string;
   }>;
   
+  // Base garment image (neutral color, front view) for compositing
+  baseImageUrl?: string;
+  
   // Production
   productionTimeDays: number;
   moq: number;
@@ -78,6 +81,30 @@ export interface GarmentType {
   // Popularity/season
   trending: boolean;
   seasonal?: "all" | "summer" | "winter" | "spring" | "fall";
+}
+
+/**
+ * Get a base garment image URL for compositing.
+ * Returns a high-quality garment photo from Unsplash or a fallback.
+ */
+export function getGarmentBaseImage(garment: GarmentType, colorHex?: string): string {
+  // If the garment has a specific base image, use it
+  if (garment.baseImageUrl) {
+    return garment.baseImageUrl;
+  }
+  
+  // Otherwise, return category-appropriate Unsplash images
+  const categoryImages: Record<string, string> = {
+    tops: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1024&h=1024&fit=crop&q=80",
+    bottoms: "https://images.unsplash.com/photo-1542272604-787c3835535d?w=1024&h=1024&fit=crop&q=80",
+    outerwear: "https://images.unsplash.com/photo-1551028719-00167b16eac5?w=1024&h=1024&fit=crop&q=80",
+    headwear: "https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=1024&h=1024&fit=crop&q=80",
+    bags: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=1024&h=1024&fit=crop&q=80",
+    accessories: "https://images.unsplash.com/photo-1611085583191-a3b181a88401?w=1024&h=1024&fit=crop&q=80",
+    footwear: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=1024&h=1024&fit=crop&q=80",
+  };
+  
+  return categoryImages[garment.category] || categoryImages.tops;
 }
 
 // Comprehensive garment catalog
@@ -122,6 +149,7 @@ export const GARMENT_CATALOG: GarmentType[] = [
       { name: "Navy", hex: "#1e3a5f", sku_suffix: "NVY" },
       { name: "Burgundy", hex: "#722f37", sku_suffix: "BRG" },
     ],
+    baseImageUrl: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1024&h=1024&fit=crop&q=80",
     productionTimeDays: 3,
     moq: 1,
     placementZones: [
@@ -170,6 +198,7 @@ export const GARMENT_CATALOG: GarmentType[] = [
       { name: "Dusty Rose", hex: "#dcae96", sku_suffix: "DRS" },
       { name: "Sage Green", hex: "#9dc183", sku_suffix: "SGE" },
     ],
+    baseImageUrl: "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=1024&h=1024&fit=crop&q=80",
     productionTimeDays: 4,
     moq: 1,
     placementZones: [
@@ -212,6 +241,7 @@ export const GARMENT_CATALOG: GarmentType[] = [
       { name: "Baby Pink", hex: "#f4c2c2", sku_suffix: "PNK" },
       { name: "Lavender", hex: "#e6e6fa", sku_suffix: "LAV" },
     ],
+    baseImageUrl: "https://images.unsplash.com/photo-1503341504253-dff4815485f1?w=1024&h=1024&fit=crop&q=80",
     productionTimeDays: 3,
     moq: 1,
     placementZones: [
@@ -548,6 +578,7 @@ export const GARMENT_CATALOG: GarmentType[] = [
       { name: "Forest Green", hex: "#228b22", sku_suffix: "FGR" },
       { name: "Sand", hex: "#c2b280", sku_suffix: "SND" },
     ],
+    baseImageUrl: "https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=1024&h=1024&fit=crop&q=80",
     productionTimeDays: 5,
     moq: 1,
     placementZones: [

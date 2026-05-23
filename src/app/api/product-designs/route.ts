@@ -107,12 +107,88 @@ export async function POST(request: NextRequest) {
 
     // Handle mockup images
     let mockupImages: string[] = [];
-    if (skipMockup && mockupImageBase64) {
-      if (mockupImageBase64.startsWith("http")) {
-        mockupImages = [mockupImageBase64];
-      } else {
-        const url = await uploadMockupImage(supabase, user.id, mockupImageBase64);
-        mockupImages = [url];
+    
+    // Accept multiple mockup images (e.g., per-color)
+    const mockupImagesInput = body.mockupImages || (mockupImageBase64 ? [mockupImageBase64] : []);
+    
+    for (const mockup of mockupImagesInput) {
+      if (typeof mockup === "string") {
+        if (mockup.startsWith("http")) {
+          mockupImages.push(mockup);
+        } else if (mockup.startsWith("data:image")) {
+          try {
+            const url = await uploadMockupImage(supabase, user.id, mockup);
+            mockupImages.push(url);
+          } catch {
+            // Skip failed upload
+          }
+        }
+      }
+    }
+
+    // Generate server-side mockup if none provided and we have placements
+    if (mockupImages.length === 0 && placements && placements.length > 0) {
+      try {
+        const { compositeDesignOnGarmentServer } = await import("@/lib/garments/compositor-server");
+        
+        // Fetch design image
+        const { data: designData } = await supabase
+          .from("designs")
+          .select("images")
+          .eq("id", designIds[0])
+          .single();
+        
+        const designImageUrl = designData?.images?.[0];
+        if (designImageUrl) {
+          // Fetch garment image from catalog or use fallback
+          const { data: productData } = await supabase
+            .from("products")
+            .select("images, colors")
+            .eq("id", productId)
+            .single();
+          
+          const garmentImageUrl = productData?.images?.[0] || 
+            "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1024&h=1024&fit=crop&q=80";
+          
+          const [garmentBuffer, designBuffer] = await Promise.all([
+            fetchImageBuffer(garmentImageUrl),
+            fetchImageBuffer(designImageUrl),
+          ]);
+          
+          const placement = placements[0];
+          const compositeBuffer = await compositeDesignOnGarmentServer(
+            garmentBuffer,
+            designBuffer,
+            {
+              x: placement.x || 50,
+              y: placement.y || 45,
+              scale: placement.scale || 1,
+              rotation: placement.rotation || 0,
+              opacity: placement.opacity ?? 1,
+              flipX: placement.flipX ?? false,
+              flipY: placement.flipY ?? false,
+            },
+            undefined,
+            1024,
+            1024
+          );
+          
+          const timestamp = Date.now();
+          const path = `product-mockups/${user.id}/${timestamp}_server_composite.png`;
+          const { data: uploadData, error: uploadErr } = await supabase.storage
+            .from("product-mockups")
+            .upload(path, compositeBuffer, {
+              contentType: "image/png",
+              upsert: false,
+            });
+          
+          if (!uploadErr && uploadData) {
+            const { data: urlData } = supabase.storage.from("product-mockups").getPublicUrl(uploadData.path);
+            mockupImages.push(urlData.publicUrl);
+          }
+        }
+      } catch {
+        // Mockup generation failed, continue without it
       }
     }
 
@@ -207,4 +283,13 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
+}
+
+async function fetchImageBuffer(url: string): Promise<Buffer> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image: ${url}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }

@@ -18,7 +18,8 @@ import {
   Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { GarmentType } from "@/lib/garments/catalog";
+import { GarmentType, getGarmentBaseImage } from "@/lib/garments/catalog";
+import { generateProductMockup } from "@/lib/garments/compositor-client";
 
 // ============================================================================
 // Types
@@ -117,6 +118,54 @@ export function PlacementCanvas({
     initialPlacementX: 0,
     initialPlacementY: 0,
   });
+
+  // Live preview state
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+
+  // Generate live preview when placements or color changes
+  useEffect(() => {
+    if (placements.length === 0) {
+      setPreviewImage(null);
+      return;
+    }
+
+    const generatePreview = async () => {
+      setIsGeneratingPreview(true);
+      try {
+        const garmentImageUrl = getGarmentBaseImage(garment, selectedColor);
+        const designs = placements.map((p) => ({
+          imageUrl: p.design.image_url,
+          placement: {
+            x: p.x,
+            y: p.y,
+            scale: p.scale,
+            rotation: p.rotation,
+            opacity: p.opacity,
+            flipX: p.flipX,
+            flipY: p.flipY,
+          },
+        }));
+
+        const mockup = await generateProductMockup(
+          garmentImageUrl,
+          designs,
+          selectedColor,
+          1024,
+          1024
+        );
+        setPreviewImage(mockup);
+      } catch {
+        // Preview generation failed, keep previous or null
+      } finally {
+        setIsGeneratingPreview(false);
+      }
+    };
+
+    const timeout = setTimeout(generatePreview, 300);
+    return () => clearTimeout(timeout);
+  }, [placements, selectedColor, garment]);
 
   const selectedPlacement = useMemo(
     () => placements.find((p) => p.id === selectedPlacementId) || null,
@@ -317,6 +366,23 @@ export function PlacementCanvas({
             <span className="text-xs text-[#6b8e6b] font-mono">
               {placements.length} DESIGN{placements.length !== 1 ? "S" : ""}
             </span>
+            
+            {/* Preview Toggle */}
+            <button
+              onClick={() => setShowPreview(!showPreview)}
+              className={`flex items-center gap-2 px-3 py-2 border transition-colors ${
+                showPreview
+                  ? "border-[#4ade80] text-[#4ade80] bg-[#4ade80]/10"
+                  : "border-[#1a2e1a] text-[#6b8e6b] hover:border-[#4ade80]/50"
+              }`}
+            >
+              <Eye className="h-4 w-4" />
+              <span className="text-xs font-mono">PREVIEW</span>
+              {isGeneratingPreview && (
+                <span className="w-3 h-3 border border-[#4ade80] border-t-transparent rounded-full animate-spin" />
+              )}
+            </button>
+            
             {selectedPlacement && (
               <button
                 onClick={() => removePlacement(selectedPlacement.id)}
@@ -363,8 +429,8 @@ export function PlacementCanvas({
               </div>
             )}
 
-            {/* Garment Silhouette */}
-            <GarmentSilhouette garment={garment} color={selectedColor} />
+            {/* Real Garment Image */}
+            <RealGarmentImage garment={garment} color={selectedColor} />
 
             {/* Placement Zones */}
             {garment.placementZones.map((zone) => {
@@ -411,6 +477,20 @@ export function PlacementCanvas({
               );
             })}
           </div>
+          
+          {/* Preview Overlay */}
+          {showPreview && previewImage && (
+            <div className="absolute inset-0 z-50 bg-[#050805] flex items-center justify-center p-4">
+              <img
+                src={previewImage}
+                alt="Garment preview"
+                className="max-w-full max-h-full object-contain"
+              />
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#0a0f0a]/90 border border-[#4ade80]/30 px-4 py-2">
+                <span className="text-xs text-[#4ade80] font-mono">LIVE PREVIEW</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -804,155 +884,40 @@ function DesignLibraryItem({ design, onClick, disabled }: DesignLibraryItemProps
   );
 }
 
-interface GarmentSilhouetteProps {
+interface RealGarmentImageProps {
   garment: GarmentType;
   color: string;
 }
 
-function GarmentSilhouette({ garment, color }: GarmentSilhouetteProps) {
-  const renderSilhouette = () => {
-    switch (garment.category) {
-      case "tops":
-        return <TeeShirtSilhouette color={color} />;
-      case "bottoms":
-        return <PantsSilhouette color={color} />;
-      case "outerwear":
-        return <JacketSilhouette color={color} />;
-      case "headwear":
-        return <HatSilhouette color={color} />;
-      case "bags":
-        return <BagSilhouette color={color} />;
-      case "accessories":
-        return <AccessorySilhouette color={color} />;
-      case "footwear":
-        return <FootwearSilhouette color={color} />;
-      default:
-        return <GenericSilhouette color={color} />;
-    }
-  };
+function RealGarmentImage({ garment, color }: RealGarmentImageProps) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const imageUrl = getGarmentBaseImage(garment, color);
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none">
-      <div className="relative w-full h-full max-w-[300px]">{renderSilhouette()}</div>
+    <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+      <div className="relative w-full h-full max-w-[400px]">
+        {!imageLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-8 h-8 border-2 border-[#4ade80] border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+        <img
+          src={imageUrl}
+          alt={garment.name}
+          className={`w-full h-full object-contain transition-opacity duration-300 ${
+            imageLoaded ? "opacity-100" : "opacity-0"
+          }`}
+          onLoad={() => setImageLoaded(true)}
+          crossOrigin="anonymous"
+        />
+        {/* Color tint overlay */}
+        {color && color !== "#ffffff" && color !== "#fafafa" && (
+          <div
+            className="absolute inset-0 mix-blend-multiply opacity-40 pointer-events-none"
+            style={{ backgroundColor: color }}
+          />
+        )}
+      </div>
     </div>
-  );
-}
-
-// ============================================================================
-// SVG Silhouettes
-// ============================================================================
-
-function TeeShirtSilhouette({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 200 240" className="w-full h-full drop-shadow-2xl">
-      <path
-        d="M60 20 L80 20 L90 35 L110 35 L120 20 L140 20 L160 60 L140 75 L130 65 L130 220 L70 220 L70 65 L60 75 L40 60 Z"
-        fill={color}
-        stroke="#1a2e1a"
-        strokeWidth="2"
-      />
-      <path
-        d="M80 20 Q100 45 120 20"
-        fill="none"
-        stroke={darkenColor(color, 20)}
-        strokeWidth="2"
-      />
-      <line x1="60" y1="20" x2="40" y2="60" stroke={darkenColor(color, 20)} strokeWidth="1" />
-      <line x1="140" y1="20" x2="160" y2="60" stroke={darkenColor(color, 20)} strokeWidth="1" />
-    </svg>
-  );
-}
-
-function PantsSilhouette({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 200 280" className="w-full h-full drop-shadow-2xl">
-      <path
-        d="M70 20 L130 20 L140 280 L105 280 L100 100 L95 280 L60 280 Z"
-        fill={color}
-        stroke="#1a2e1a"
-        strokeWidth="2"
-      />
-      <rect x="70" y="20" width="60" height="15" fill={darkenColor(color, 20)} />
-      <path d="M70 35 L85 35 L85 60" fill="none" stroke={darkenColor(color, 20)} strokeWidth="1" />
-      <path d="M130 35 L115 35 L115 60" fill="none" stroke={darkenColor(color, 20)} strokeWidth="1" />
-    </svg>
-  );
-}
-
-function JacketSilhouette({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 200 260" className="w-full h-full drop-shadow-2xl">
-      <path
-        d="M55 15 L80 15 L100 35 L120 15 L145 15 L170 70 L150 85 L140 75 L140 250 L60 250 L60 75 L50 85 L30 70 Z"
-        fill={color}
-        stroke="#1a2e1a"
-        strokeWidth="2"
-      />
-      <path d="M80 15 L100 35 L120 15" fill="none" stroke={darkenColor(color, 20)} strokeWidth="2" />
-      <line x1="100" y1="35" x2="100" y2="250" stroke={darkenColor(color, 30)} strokeWidth="2" />
-    </svg>
-  );
-}
-
-function HatSilhouette({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 200 140" className="w-full h-full drop-shadow-2xl">
-      <path
-        d="M40 80 Q40 20 100 20 Q160 20 160 80"
-        fill={color}
-        stroke="#1a2e1a"
-        strokeWidth="2"
-      />
-      <path
-        d="M35 75 L165 75 L170 90 Q100 100 30 90 Z"
-        fill={color}
-        stroke="#1a2e1a"
-        strokeWidth="2"
-      />
-      <line x1="100" y1="20" x2="100" y2="75" stroke={darkenColor(color, 20)} strokeWidth="1" />
-    </svg>
-  );
-}
-
-function BagSilhouette({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 200 220" className="w-full h-full drop-shadow-2xl">
-      <rect x="40" y="60" width="120" height="140" rx="5" fill={color} stroke="#1a2e1a" strokeWidth="2" />
-      <path d="M60 60 L60 30 Q60 10 100 10 Q140 10 140 30 L140 60" fill="none" stroke={color} strokeWidth="8" />
-      <path d="M60 60 L60 30 Q60 10 100 10 Q140 10 140 30 L140 60" fill="none" stroke="#1a2e1a" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function AccessorySilhouette({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-2xl">
-      <circle cx="100" cy="100" r="70" fill={color} stroke="#1a2e1a" strokeWidth="2" />
-      <circle cx="100" cy="100" r="50" fill="none" stroke={darkenColor(color, 20)} strokeWidth="1" />
-      <circle cx="100" cy="100" r="30" fill="none" stroke={darkenColor(color, 20)} strokeWidth="1" />
-    </svg>
-  );
-}
-
-function FootwearSilhouette({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 200 120" className="w-full h-full drop-shadow-2xl">
-      <path
-        d="M30 80 Q30 40 60 30 L120 25 Q160 20 170 50 Q180 80 160 90 L40 95 Q30 95 30 80"
-        fill={color}
-        stroke="#1a2e1a"
-        strokeWidth="2"
-      />
-      <path d="M60 30 Q80 60 120 55" fill="none" stroke={darkenColor(color, 20)} strokeWidth="2" />
-      <line x1="100" y1="25" x2="100" y2="60" stroke={darkenColor(color, 20)} strokeWidth="1" />
-    </svg>
-  );
-}
-
-function GenericSilhouette({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 200 240" className="w-full h-full drop-shadow-2xl">
-      <rect x="50" y="20" width="100" height="200" rx="10" fill={color} stroke="#1a2e1a" strokeWidth="2" />
-    </svg>
   );
 }

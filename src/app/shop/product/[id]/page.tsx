@@ -60,7 +60,6 @@ export default function ProductDetailPage() {
   const [error, setError] = useState<string | null>(null);
   
   const [selectedSize, setSelectedSize] = useState<string>("M");
-  const [selectedColor, setSelectedColor] = useState<string>("Black");
   const [currentImage, setCurrentImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [addedToCart, setAddedToCart] = useState(false);
@@ -72,7 +71,7 @@ export default function ProductDetailPage() {
         const data = await getProductDesignById(productId);
         setProduct(data);
         if (data && data.product?.colors && data.product.colors.length > 0) {
-          setSelectedColor(data.product.colors[0].name);
+          setSelectedColorName(data.product.colors[0].name);
         }
       } catch (err) {
         // Error loading product
@@ -128,20 +127,23 @@ export default function ProductDetailPage() {
   
   // Get available sizes and colors from product data
   const availableSizes = product.product?.sizes || DEFAULT_SIZES;
-  const availableColors = product.product?.colors?.map(c => c.name) || DEFAULT_COLORS;
+  const colorOptions = product.product?.colors || DEFAULT_COLORS.map(name => ({ name, hex: name.toLowerCase() === "black" ? "#0a0a0a" : name.toLowerCase() === "white" ? "#fafafa" : name.toLowerCase() === "grey" ? "#6b7280" : name.toLowerCase() === "navy" ? "#1e3a5f" : name.toLowerCase() === "olive" ? "#4a5d23" : "#6b7280" }));
+  
+  const [selectedColorName, setSelectedColorName] = useState<string>(colorOptions[0]?.name || "Black");
+  const selectedColorHex = colorOptions.find(c => c.name === selectedColorName)?.hex || "#0a0a0a";
 
   const handleAddToCart = () => {
-    if (!selectedSize || !selectedColor) return;
+    if (!selectedSize || !selectedColorName) return;
     
     addItem({
       product_design_id: product.id,
       design_title: designTitle,
-      product_name: `${productName} (${selectedColor})`,
+      product_name: `${productName} (${selectedColorName})`,
       artist_name: artistName,
       artist_id: artistId,
       mockup_image: images[0],
       size: selectedSize,
-      color: selectedColor,
+      color: selectedColorName,
       quantity: quantity,
       unit_price: Math.round(price),
     });
@@ -165,12 +167,12 @@ export default function ProductDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           {/* Images */}
           <div className="space-y-4">
-            <div className="relative aspect-[4/5] bg-[#0a0f0a] border border-[#1a2e1a]">
+            <div className="relative aspect-[4/5] bg-[#0a0f0a] border border-[#1a2e1a] group overflow-hidden">
               <OptimizedImage
                 src={images[currentImage]}
                 alt={productName}
                 fill
-                className="object-cover"
+                className="object-cover transition-transform duration-500 group-hover:scale-110"
                 transform={{ width: 800, height: 1000, resize: "cover" }}
                 sizes="(max-width: 1024px) 100vw, 50vw"
               />
@@ -181,13 +183,18 @@ export default function ProductDetailPage() {
                   {freshness === "FIRE" && <Sparkles className="h-3 w-3 mr-1" />}
                   {freshness}
                 </Badge>
-                {/* TODO: Check if partnership is active */}
-                {false && (
-                  <Badge className="bg-[#fbbf24] text-black rounded-none font-black text-xs">
-                    <Droplets className="h-3 w-3 mr-1" />
-                    EQUITY INK
-                  </Badge>
-                )}
+                {/* Color indicator */}
+                <Badge 
+                  className="rounded-none font-black text-xs border-0"
+                  style={{ backgroundColor: selectedColorHex, color: selectedColorHex === "#fafafa" || selectedColorHex === "#ffffff" ? "#000" : "#fff" }}
+                >
+                  {selectedColorName.toUpperCase()}
+                </Badge>
+              </div>
+              
+              {/* Zoom hint */}
+              <div className="absolute bottom-4 right-4 bg-[#0a0f0a]/80 px-3 py-1.5 text-[10px] font-mono text-[#6b8e6b] opacity-0 group-hover:opacity-100 transition-opacity">
+                HOVER TO ZOOM
               </div>
             </div>
 
@@ -261,19 +268,23 @@ export default function ProductDetailPage() {
             {/* Color Selection */}
             <div>
               <label className="text-[#e8f5e8] font-mono text-xs tracking-wider mb-3 block">
-                COLOR: <span className="text-[#4ade80]">{selectedColor.toUpperCase()}</span>
+                COLOR: <span className="text-[#4ade80]">{selectedColorName.toUpperCase()}</span>
               </label>
-              <div className="flex gap-2">
-                {availableColors.map(color => (
+              <div className="flex gap-2 flex-wrap">
+                {colorOptions.map((color) => (
                   <button
-                    key={color}
-                    onClick={() => setSelectedColor(color)}
+                    key={color.name}
+                    onClick={() => setSelectedColorName(color.name)}
                     className={`w-12 h-12 border-2 transition-all ${
-                      selectedColor === color ? "border-[#4ade80] scale-110" : "border-[#1a2e1a]"
+                      selectedColorName === color.name ? "border-[#4ade80] scale-110" : "border-[#1a2e1a]"
                     }`}
-                    style={{ backgroundColor: color.toLowerCase() }}
-                    title={color}
-                  />
+                    style={{ backgroundColor: color.hex }}
+                    title={color.name}
+                  >
+                    {selectedColorName === color.name && (
+                      <CheckCircle className="h-5 w-5 text-[#4ade80] mx-auto drop-shadow-md" />
+                    )}
+                  </button>
                 ))}
               </div>
             </div>

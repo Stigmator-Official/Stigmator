@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useAuth, useRequireRole } from "@/lib/auth/provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GARMENT_CATALOG } from "@/lib/garments/catalog";
+import { generateProductMockup } from "@/lib/garments/compositor-client";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +28,8 @@ import {
   FileText,
   Eye,
   EyeOff,
-  Info
+  Info,
+  Sparkles
 } from "lucide-react";
 
 // Tattoo styles for selection
@@ -77,6 +80,9 @@ export default function DesignUploadPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [uploadedDesign, setUploadedDesign] = useState<{ id: string; imageUrl: string; title: string } | null>(null);
+  const [quickMockups, setQuickMockups] = useState<Array<{ garmentName: string; imageUrl: string; garmentId: string }>>([]);
+  const [isGeneratingMockups, setIsGeneratingMockups] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validateFile = (file: File): string | null => {
@@ -207,9 +213,9 @@ export default function DesignUploadPage() {
       formData.append("isNSFW", String(uploadState.isNSFW));
       formData.append("attributionRequired", String(uploadState.attributionRequired));
 
-      const xhr = new XMLHttpRequest();
-      
-      const uploadPromise = new Promise<void>((resolve, reject) => {
+      const response = await new Promise<{ design: { id: string; images: string[]; title: string } }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
         xhr.upload.addEventListener("progress", (event) => {
           if (event.lengthComputable) {
             const percent = Math.round((event.loaded / event.total) * 100);
@@ -219,7 +225,11 @@ export default function DesignUploadPage() {
 
         xhr.addEventListener("load", () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              reject(new Error("Invalid response"));
+            }
           } else {
             let message = "Upload failed";
             try {
@@ -237,14 +247,48 @@ export default function DesignUploadPage() {
         xhr.send(formData);
       });
 
-      await uploadPromise;
-
+      const design = response.design;
+      setUploadedDesign({
+        id: design.id,
+        imageUrl: design.images[0],
+        title: design.title,
+      });
       setSuccess(true);
       setIsUploading(false);
 
-      setTimeout(() => {
-        router.push("/artist/designs");
-      }, 1500);
+      // Generate quick mockups on popular garments
+      setIsGeneratingMockups(true);
+      const popularGarments = [
+        GARMENT_CATALOG.find(g => g.id === "tee-classic"),
+        GARMENT_CATALOG.find(g => g.id === "tee-oversized"),
+        GARMENT_CATALOG.find(g => g.id === "hoodie-pullover"),
+      ].filter(Boolean);
+
+      const mockups: Array<{ garmentName: string; imageUrl: string; garmentId: string }> = [];
+      for (const garment of popularGarments) {
+        if (!garment) continue;
+        try {
+          const mockup = await generateProductMockup(
+            garment.baseImageUrl || `https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1024&h=1024&fit=crop&q=80`,
+            [{
+              imageUrl: design.images[0],
+              placement: { x: 50, y: 45, scale: 1, rotation: 0, opacity: 1, flipX: false, flipY: false },
+            }],
+            garment.baseColors[0]?.hex,
+            512,
+            512
+          );
+          mockups.push({
+            garmentName: garment.name,
+            imageUrl: mockup,
+            garmentId: garment.id,
+          });
+        } catch {
+          // Skip failed mockup
+        }
+      }
+      setQuickMockups(mockups);
+      setIsGeneratingMockups(false);
     } catch (err: any) {
       setError(err.message || "Upload failed. Please try again.");
       setIsUploading(false);
@@ -254,26 +298,81 @@ export default function DesignUploadPage() {
   if (success) {
     return (
       <div className="min-h-screen pt-24 pb-12 px-4 bg-[#050805] texture-grain">
-        <div className="max-w-2xl mx-auto">
-          <Card className="bg-[#0a0f0a] border-[#4ade80]/50 rounded-none">
-            <CardContent className="p-12 text-center">
-              <div className="w-20 h-20 bg-[#4ade80]/20 border border-[#4ade80] flex items-center justify-center mx-auto mb-6">
-                <CheckCircle className="h-10 w-10 text-[#4ade80]" />
+        <div className="max-w-4xl mx-auto">
+          {/* Success Header */}
+          <Card className="bg-[#0a0f0a] border-[#4ade80]/50 rounded-none mb-8">
+            <CardContent className="p-8 text-center">
+              <div className="w-16 h-16 bg-[#4ade80]/20 border border-[#4ade80] flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="h-8 w-8 text-[#4ade80]" />
               </div>
               
-              <h1 className="text-3xl font-black tracking-tighter text-[#e8f5e8] mb-4">
+              <h1 className="text-2xl font-black tracking-tighter text-[#e8f5e8] mb-2">
                 DESIGN UPLOADED
               </h1>
               
-              <p className="text-[#6b8e6b] mb-6">
-                Your design has been uploaded successfully and is being processed. You&apos;ll be redirected to your designs gallery.
+              <p className="text-[#6b8e6b] mb-4">
+                &ldquo;{uploadedDesign?.title}&rdquo; is ready to be placed on garments
               </p>
 
-              <div className="w-full bg-[#1a2e1a] h-2 overflow-hidden mb-6">
-                <div className="h-full bg-[#4ade80] w-full animate-pulse" />
+              <div className="flex gap-4 justify-center">
+                <Link href="/artist/designs">
+                  <Button variant="outline" className="border-[#1a2e1a] text-[#6b8e6b] hover:text-[#e8f5e8] rounded-none">
+                    VIEW ALL DESIGNS
+                  </Button>
+                </Link>
+                <Link href="/artist/garments/create">
+                  <Button className="bg-[#4ade80] hover:bg-[#3ec46e] text-black rounded-none font-black">
+                    CREATE GARMENT
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
               </div>
             </CardContent>
           </Card>
+
+          {/* Quick Mockups */}
+          <div className="mb-6">
+            <h2 className="text-xl font-black tracking-tighter text-[#e8f5e8] mb-4 flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-[#4ade80]" />
+              QUICK PREVIEW
+            </h2>
+            <p className="text-sm text-[#6b8e6b] mb-6">
+              See how your design looks on popular garments. Click any to customize placement.
+            </p>
+
+            {isGeneratingMockups ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-[#0a0f0a] border border-[#1a2e1a] aspect-square flex items-center justify-center">
+                    <Loader2 className="h-8 w-8 text-[#4ade80] animate-spin" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {quickMockups.map((mockup) => (
+                  <Link
+                    key={mockup.garmentId}
+                    href={`/artist/garments/create?design_id=${uploadedDesign?.id}&garment_id=${mockup.garmentId}`}
+                    className="group bg-[#0a0f0a] border border-[#1a2e1a] hover:border-[#4ade80]/50 transition-all overflow-hidden"
+                  >
+                    <div className="aspect-square relative">
+                      <img
+                        src={mockup.imageUrl}
+                        alt={mockup.garmentName}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#050805] via-transparent to-transparent" />
+                      <div className="absolute bottom-0 left-0 right-0 p-4">
+                        <p className="text-sm font-black text-[#e8f5e8]">{mockup.garmentName.toUpperCase()}</p>
+                        <p className="text-xs text-[#4ade80] font-mono mt-1">CLICK TO CUSTOMIZE &rarr;</p>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );

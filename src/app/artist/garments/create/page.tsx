@@ -38,6 +38,7 @@ import {
   PRESET_VARIANTS,
 } from "@/components/garments/builder";
 import { AIGarmentEngine } from "@/components/garments/builder/AIGarmentEngine";
+import { Garment3DViewer } from "@/components/garments/builder/Garment3DViewer";
 
 // Import existing pricing/deposit components
 import { DepositRecoupSetup } from "@/components/garments/deposit-recoup-setup";
@@ -100,6 +101,7 @@ export default function CreateGarmentPage() {
   
   // ===== STEP 3: Design Placement =====
   const [placements, setPlacements] = useState<DesignPlacement[]>([]);
+  const [show3DPreview, setShow3DPreview] = useState(false);
   
   // ===== STEP 4: Color & Size Configuration =====
   const [variants, setVariants] = useState<VariantConfig[]>([]);
@@ -374,21 +376,47 @@ export default function CreateGarmentPage() {
                   />
                 </div>
                 
-                {/* 2D Placement Canvas */}
+                {/* Placement Editor / 3D Preview Toggle */}
                 <div className="bg-[#0a0f0a] border border-[#1a2e1a] p-6">
-                  <h2 className="font-black tracking-tighter text-xl mb-2 text-[#e8f5e8]">
-                    2D PLACEMENT EDITOR
-                  </h2>
-                  <p className="text-sm text-[#6b8e6b] mb-6">
-                    Fine-tune design positions. Drag onto zones, click to resize/rotate.
-                  </p>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="font-black tracking-tighter text-xl text-[#e8f5e8]">
+                        {show3DPreview ? "3D PREVIEW" : "2D PLACEMENT EDITOR"}
+                      </h2>
+                      <p className="text-sm text-[#6b8e6b]">
+                        {show3DPreview 
+                          ? "Orbit, zoom, and inspect your design from all angles"
+                          : "Fine-tune design positions. Drag onto zones, click to resize/rotate."}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShow3DPreview(!show3DPreview)}
+                      className={`flex items-center gap-2 px-4 py-2 border text-sm font-bold transition-all ${
+                        show3DPreview
+                          ? "border-[#4ade80] text-[#4ade80] bg-[#4ade80]/10"
+                          : "border-[#1a2e1a] text-[#6b8e6b] hover:border-[#4ade80]/50"
+                      }`}
+                    >
+                      {show3DPreview ? "2D EDITOR" : "3D PREVIEW"}
+                    </button>
+                  </div>
                   
-                  <PlacementCanvas
-                    garment={selectedGarment}
-                    placements={placements}
-                    onPlacementsChange={setPlacements}
-                    selectedColor={variants[0]?.color || selectedGarment.baseColors[0].hex}
-                  />
+                  {show3DPreview ? (
+                    <div className="h-[500px] bg-[#050805] border border-[#1a2e1a]">
+                      <Garment3DViewer
+                        garment={selectedGarment}
+                        placements={placements}
+                        selectedColor={variants[0]?.color || selectedGarment.baseColors[0].hex}
+                      />
+                    </div>
+                  ) : (
+                    <PlacementCanvas
+                      garment={selectedGarment}
+                      placements={placements}
+                      onPlacementsChange={setPlacements}
+                      selectedColor={variants[0]?.color || selectedGarment.baseColors[0].hex}
+                    />
+                  )}
                 </div>
                 
                 {/* Available Designs for Dragging */}
