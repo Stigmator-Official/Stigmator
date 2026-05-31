@@ -252,10 +252,10 @@ BEGIN
     
     RETURN;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 -- View for artist dashboard showing recoup progress
-CREATE VIEW artist_recoup_status AS
+CREATE VIEW artist_recoup_status WITH (security_invoker = true) AS
 SELECT 
     pd.id as product_design_id,
     pd.design_id,

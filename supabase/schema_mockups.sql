@@ -242,7 +242,7 @@ BEGIN
     NEW.updated_at = now();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 CREATE TRIGGER update_mockup_presets_updated_at
     BEFORE UPDATE ON mockup_presets
@@ -257,7 +257,7 @@ BEGIN
     WHERE id = NEW.preset_id;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 CREATE TRIGGER on_render_created
     AFTER INSERT ON mockup_renders
@@ -272,7 +272,7 @@ BEGIN
     WHERE id = NEW.design_file_id;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 CREATE TRIGGER on_preset_uses_design
     AFTER INSERT OR UPDATE OF design_file_id ON mockup_presets
@@ -302,7 +302,7 @@ BEGIN
     LEFT JOIN design_files df ON df.artist_id = mp.artist_id
     WHERE mp.artist_id = artist_uuid;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 -- Search presets by name or tags
 CREATE OR REPLACE FUNCTION search_mockup_presets(
@@ -341,7 +341,7 @@ BEGIN
     AND (mp.is_public = true OR mp.artist_id = auth.uid())
     ORDER BY rank DESC, mp.usage_count DESC;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 -- =============================================
 -- 7. STORAGE BUCKETS CONFIGURATION

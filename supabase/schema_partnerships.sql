@@ -117,7 +117,7 @@ BEGIN
     NEW.code = 'INK-' || UPPER(SUBSTRING(MD5(NEW.id::TEXT), 1, 8));
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 CREATE TRIGGER set_partnership_code BEFORE INSERT ON partnership_codes
     FOR EACH ROW EXECUTE FUNCTION generate_partnership_code();
@@ -134,7 +134,7 @@ BEGIN
         updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 CREATE TRIGGER update_ownership_on_partnership 
     AFTER INSERT ON design_partnerships

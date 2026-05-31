@@ -446,7 +446,7 @@ BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ language 'plpgsql' SET search_path = 'public';
 
 CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -470,7 +470,7 @@ BEGIN
     NEW.order_number = 'STG-' || TO_CHAR(NOW(), 'YYYYMMDD') || '-' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT), 1, 6));
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ language 'plpgsql' SET search_path = 'public';
 
 CREATE TRIGGER set_order_number BEFORE INSERT ON orders
     FOR EACH ROW EXECUTE FUNCTION generate_order_number();

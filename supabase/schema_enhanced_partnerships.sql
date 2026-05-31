@@ -185,7 +185,7 @@ BEGIN
     NEW.code := 'INK-' || artist_initials || year || '-' || random_part;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 CREATE TRIGGER set_partnership_code BEFORE INSERT ON partnership_codes
     FOR EACH ROW EXECUTE FUNCTION generate_partnership_code();
@@ -281,7 +281,7 @@ BEGIN
     
     RETURN;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 -- RLS POLICIES
 ALTER TABLE partnership_codes ENABLE ROW LEVEL SECURITY;

@@ -124,7 +124,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 -- Function to calculate referral commission on sale
 CREATE OR REPLACE FUNCTION calculate_referral_commission(
@@ -185,7 +185,7 @@ BEGIN
     
     RETURN v_commission_amount;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 -- Add referral_code to profiles for tracking
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE;
@@ -198,7 +198,7 @@ BEGIN
     NEW.referral_code := UPPER(SUBSTRING(MD5(NEW.id::TEXT), 1, 8));
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 CREATE TRIGGER set_referral_code
     BEFORE INSERT ON profiles

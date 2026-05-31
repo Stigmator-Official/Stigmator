@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
-import { createRouteHandlerClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/server"
 import { webhookRateLimit } from "@/lib/rate-limit"
-import { calculateRevenueSplit } from "@/lib/api/revenue"
+import { calculateRevenueSplit, calculateMultiDesignRevenue } from "@/lib/api/revenue"
 
 // Lazy init Stripe to avoid build errors
 let stripe: Stripe | null = null
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const supabase = await createRouteHandlerClient()
+  const supabase = createAdminClient()
 
   try {
     switch (event.type) {
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
           console.error("Error updating order status:", updateError)
         }
 
-        // Process each order item: sales counts + earnings
+        // Process each order item: sales counts + earnings + referrals
         for (const item of order.items || []) {
           // Fetch product design with partnership info
           const { data: productDesign } = await supabase
@@ -137,20 +137,66 @@ export async function POST(request: NextRequest) {
             .eq("id", item.product_design_id)
             .single()
 
-          if (productDesign) {
-            const updates: any = {
-              total_sales: (productDesign.total_sales || 0) + item.quantity,
-            }
-            if (productDesign.is_limited_run) {
-              updates.units_sold = (productDesign.units_sold || 0) + item.quantity
-            }
-            await supabase
-              .from("product_designs")
-              .update(updates)
-              .eq("id", item.product_design_id)
+          if (!productDesign) continue
 
-            // Calculate earnings using TypeScript logic (not RPC)
-            const saleAmount = item.total_price || item.unit_price * item.quantity
+          const saleAmount = item.total_price || item.unit_price * item.quantity
+          const artistId = productDesign.artist_id
+
+          // Update sales counts
+          const updates: any = {
+            total_sales: (productDesign.total_sales || 0) + item.quantity,
+          }
+          if (productDesign.is_limited_run) {
+            updates.units_sold = (productDesign.units_sold || 0) + item.quantity
+          }
+          await supabase
+            .from("product_designs")
+            .update(updates)
+            .eq("id", item.product_design_id)
+
+          // Check if this is a multi-design garment
+          const { data: garmentDesigns } = await supabase
+            .from("garment_designs")
+            .select(`
+              design_id,
+              artist_id,
+              revenue_percentage,
+              design:design_id(
+                id,
+                partnerships:design_partnerships(
+                  partner_id,
+                  artist_share,
+                  client_share,
+                  studio_share,
+                  verification_status
+                )
+              )
+            `)
+            .eq("product_design_id", item.product_design_id)
+
+          let calculation: ReturnType<typeof calculateRevenueSplit>
+          let isDepositRecoup = false
+          let depositRecoupedThisSale = 0
+
+          if (garmentDesigns && garmentDesigns.length > 1) {
+            // Multi-design garment
+            const designs = garmentDesigns.map((gd: any) => ({
+              design_id: gd.design_id,
+              artist_id: gd.artist_id,
+              weight_percentage: parseFloat(gd.revenue_percentage) || (100 / garmentDesigns.length),
+              partnerships: (gd.design?.partnerships || [])
+                .filter((p: any) => p.verification_status === "verified")
+                .map((p: any) => ({
+                  partner_id: p.partner_id,
+                  artist_share: p.artist_share,
+                  client_share: p.client_share,
+                  studio_share: p.studio_share,
+                })),
+            }))
+
+            calculation = calculateMultiDesignRevenue(saleAmount, designs)
+          } else {
+            // Single design
             const partnerships = (productDesign.design?.partnerships || [])
               .filter((p: any) => p.verification_status === "verified")
               .map((p: any) => ({
@@ -160,10 +206,10 @@ export async function POST(request: NextRequest) {
                 studio_share: p.studio_share,
               }))
 
-            const calculation = calculateRevenueSplit(
+            calculation = calculateRevenueSplit(
               saleAmount,
               partnerships,
-              productDesign.artist_id,
+              artistId,
               {
                 depositRecoupEnabled: productDesign.deposit_recoup_enabled,
                 depositAmount: productDesign.deposit_amount,
@@ -171,28 +217,112 @@ export async function POST(request: NextRequest) {
               }
             )
 
-            // Insert earnings breakdown records
-            const earningsRecords = calculation.recipients.map((recipient) => ({
-              order_item_id: item.id,
-              sale_amount: saleAmount,
-              platform_fee: calculation.platform_fee,
-              remaining_amount: calculation.remaining,
-              recipient_id: recipient.recipient_id,
-              recipient_type: recipient.recipient_type,
-              amount: recipient.amount,
-              percentage: parseFloat(recipient.percentage.toFixed(2)),
-              paid: false,
-            }))
+            // Track if deposit recoup was applied
+            isDepositRecoup = calculation.recipients.some((r) => r.description === "Deposit recoup")
+            if (isDepositRecoup) {
+              depositRecoupedThisSale = calculation.recipients
+                .filter((r) => r.recipient_type === "artist")
+                .reduce((sum, r) => sum + r.amount, 0)
+            }
+          }
 
-            if (earningsRecords.length > 0) {
-              const { error: breakdownError } = await supabase
-                .from("earnings_breakdown")
-                .insert(earningsRecords)
+          // Insert earnings breakdown records
+          const earningsRecords = calculation.recipients.map((recipient) => ({
+            order_item_id: item.id,
+            sale_amount: saleAmount,
+            platform_fee: calculation.platform_fee,
+            remaining_amount: calculation.remaining,
+            recipient_id: recipient.recipient_id,
+            recipient_type: recipient.recipient_type,
+            amount: recipient.amount,
+            percentage: parseFloat(recipient.percentage.toFixed(2)),
+            paid: false,
+          }))
 
-              if (breakdownError) {
-                // Log but don't fail — webhook should acknowledge receipt
+          if (earningsRecords.length > 0) {
+            const { error: breakdownError } = await supabase
+              .from("earnings_breakdown")
+              .insert(earningsRecords)
+
+            if (breakdownError) {
+              console.error("Error inserting earnings:", breakdownError)
+            }
+          }
+
+          // Update deposit recoup tracking
+          if (isDepositRecoup && depositRecoupedThisSale > 0) {
+            const newRecouped = (productDesign.deposit_recouped_amount || 0) + depositRecoupedThisSale
+            const isFullyRecouped = newRecouped >= (productDesign.deposit_amount || 0)
+            await supabase
+              .from("product_designs")
+              .update({
+                deposit_recouped_amount: newRecouped,
+                ...(isFullyRecouped ? { deposit_recoup_enabled: false } : {}),
+              })
+              .eq("id", item.product_design_id)
+          }
+
+          // Check for active referral and create referral earnings
+          try {
+            const { data: activeReferral } = await supabase
+              .from("referrals")
+              .select("id, commission_rate")
+              .eq("referred_artist_id", artistId)
+              .eq("status", "completed")
+              .gt("expires_at", new Date().toISOString())
+              .single()
+
+            if (activeReferral) {
+              const commissionRate = activeReferral.commission_rate || 0.05
+              const commissionAmount = Math.round(saleAmount * commissionRate)
+
+              if (commissionAmount > 0) {
+                // Deduct commission from artist's earnings breakdown for this order item
+                const { data: artistEarnings } = await supabase
+                  .from("earnings_breakdown")
+                  .select("id, amount")
+                  .eq("order_item_id", item.id)
+                  .eq("recipient_id", artistId)
+                  .eq("recipient_type", "artist")
+
+                const artistRecord = artistEarnings?.[0]
+                if (artistRecord && artistRecord.amount >= commissionAmount) {
+                  await supabase
+                    .from("earnings_breakdown")
+                    .update({ amount: artistRecord.amount - commissionAmount })
+                    .eq("id", artistRecord.id)
+                }
+
+                // Create referral earnings record
+                await supabase.from("referral_earnings").insert({
+                  referral_id: activeReferral.id,
+                  order_item_id: item.id,
+                  sale_amount: saleAmount,
+                  commission_amount: commissionAmount,
+                  status: "pending",
+                })
+
+                // Update referral totals (read then update)
+                const { data: refData } = await supabase
+                  .from("referrals")
+                  .select("total_sales_generated, total_commission_paid")
+                  .eq("id", activeReferral.id)
+                  .single()
+
+                if (refData) {
+                  await supabase
+                    .from("referrals")
+                    .update({
+                      total_sales_generated: (refData.total_sales_generated || 0) + saleAmount,
+                      total_commission_paid: (refData.total_commission_paid || 0) + commissionAmount,
+                    })
+                    .eq("id", activeReferral.id)
+                }
               }
             }
+          } catch (referralErr) {
+            // Log but don't fail the webhook
+            console.error("Error processing referral commission:", referralErr)
           }
         }
 

@@ -140,7 +140,7 @@ BEGIN
         v_retail,
         v_remaining - p_manufacturing_cost;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 -- Check if can go live
 CREATE OR REPLACE FUNCTION can_garment_go_live(p_product_design_id UUID)
@@ -170,7 +170,7 @@ BEGIN
     
     RETURN v_manufacturer_approved AND v_quote_accepted;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 -- Update production status
 CREATE OR REPLACE FUNCTION update_production_status()
@@ -186,7 +186,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = 'public';
 
 CREATE TRIGGER update_prod_status BEFORE UPDATE ON product_designs
     FOR EACH ROW EXECUTE FUNCTION update_production_status();
